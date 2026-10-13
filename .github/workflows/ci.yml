@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit + frontend + live API
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install yt-dlp (latest)
+        run: python -m pip install --upgrade yt-dlp
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          YTDLP_AUTO_INSTALL: false   # already installed above
+
+      - name: Offline tests (unit + jsdom frontend)
+        run: npm test
+
+      - name: Live API tests
+        run: npm run test:live
+        continue-on-error: true   # upstreams can flake; don't block deploys on it
+
+      # Replays the Dockerfile COPY/RUN order outside Docker, then boots the
+      # server and probes /api/health + every static route. Catches the
+      # deploy-time failure "Cannot find module /app/scripts/ensure-ytdlp.js"
+      # in seconds instead of after a failed Railway build.
+      - name: Verify Docker build order (boot + health + assets)
+        run: npm run verify:docker
+
